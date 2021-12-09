@@ -22,6 +22,29 @@ var GreatCircle = require('great-circle')
 var lasttime = 0
 var lastcount = 0
 
+function CPA(speed1,course1,speed2,course2,range,bearing)
+{
+  var DTR = Math.PI / 180;
+  var x,y,xVel,yVel,dot,a,b,cpa;
+
+
+  x = range * Math.cos(DTR*bearing);
+  y = range * Math.sin(DTR*bearing);
+  xVel = speed2 * Math.cos(DTR*course2) - speed1 * Math.cos(DTR*course1);
+  yVel = speed2 * Math.sin(DTR*course2) - speed1 * Math.sin(DTR*course1);
+  dot = x * xVel + y * yVel;
+  if (dot >= 0.0) return;
+  a = xVel * xVel + yVel * yVel;
+  b = 2 * dot;
+  //if (Math.abs(a) < 0.0001 || Math.abs(b) > 24 * Math.abs(a)) return "CPA > 12";
+  if (Math.abs(a) < 0.0001 || Math.abs(b) > 24 * Math.abs(a)) return;
+  cpa = range * range - ((b*b)/(4*a));
+  if (cpa <= 0.0) return [0, 60*(-b/(2*a))];
+  cpa = Math.sqrt(cpa);
+  return [cpa, 60*(-b/(2*a))];
+}
+
+
 function pollUpdate() {
   fetch(aircraftURL)
     .then(res => res.json())
@@ -41,11 +64,19 @@ function pollUpdate() {
         return e['alt_baro'] != 'ground' && 'seen_pos' in e
       })
       o['nearest_aircraft'].forEach(function(e) {
-	e['distance'] = GreatCircle.distance(station_lat, station_long, e['lat'], e['lon'] )
+	e['distance_km'] = GreatCircle.distance(station_lat, station_long, e['lat'], e['lon'] )
+	e['distance_nm'] = GreatCircle.distance(station_lat, station_long, e['lat'], e['lon'], "NM" )
 	e['bearing'] = GreatCircle.bearing(station_lat, station_long, e['lat'], e['lon'] )
+	var cpa = CPA(0, 0, e['gs'], e['track'], e['distance_nm'], e['bearing'])
+	if (cpa) {
+         e['cpa_nm'] = cpa[0]
+         e['cpa_km'] = cpa[0] * 1.852
+         e['cpa_secs'] = cpa[1] * 60
+         e['cpa_altitude_estimate'] = e['alt_baro'] + (cpa[1] * e['baro_rate'])
+	}
       })
       o['nearest_aircraft'].sort(function(a, b) {
-	return a['distance'] - b['distance']
+	return a['distance_km'] - b['distance_km']
       })
 
       o['messages_total'] = messages
