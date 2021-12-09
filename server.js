@@ -45,6 +45,8 @@ function CPA(speed1,course1,speed2,course2,range,bearing)
 }
 
 
+var imgCache = {}
+
 function pollUpdate() {
   fetch(aircraftURL)
     .then(res => res.json())
@@ -52,6 +54,7 @@ function pollUpdate() {
       console.log(json)
       var o = {}
       var timestamp = json['now']
+      promises = []
       var messages = json['messages']
       o['timestamp'] = timestamp
       o['positions'] = json['aircraft'].filter(function(e) {
@@ -74,6 +77,20 @@ function pollUpdate() {
          e['cpa_secs'] = cpa[1] * 60
          e['cpa_altitude_estimate'] = e['alt_baro'] + (cpa[1] * e['baro_rate'])
 	}
+	if (e['hex'] in imgCache) {
+	  e['image'] = imgCache[e['hex']]
+	} else {
+          promises.push(fetch('https://api.planespotters.net/pub/photos/hex/' + e['hex'])
+            .then(res => res.json())
+            .then(imgJson => {
+	      var image = ''
+	      if (imgJson['photos'].length > 0) {
+	        image = imgJson['photos'][0]['thumbnail']['src']
+	      }
+              imgCache[e['hex']] = image
+	      e['image'] = image
+	  }))
+	}
       })
       o['nearest_aircraft'].sort(function(a, b) {
 	return a['distance_km'] - b['distance_km']
@@ -86,7 +103,6 @@ function pollUpdate() {
       lasttime = timestamp
       lastmessages = messages
       o['feeds'] = {}
-      promises = []
       if (faJsonURL != "") {
         promises.push(fetch(faJsonURL)
           .then(res => res.json())
