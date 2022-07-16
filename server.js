@@ -11,12 +11,15 @@ const checkContainers = process.env.CHECK_CONTAINERS ? process.env.CHECK_CONTAIN
 const station_lat = parseFloat(process.env.LAT)
 const station_long = parseFloat(process.env.LONG)
 const mqttInterval = process.env.MQTT_INTERVAL ? parseInt(process.env.MQTT_INTERVAL) : 5000
-
+const dbFile = process.env.DB_FILE
 const mqtt = require('mqtt')
 const fetch = require('node-fetch')
 const exec = require("child_process").exec;
 const client = mqtt.connect('mqtt://' + server + '/', {'username': user, 'password': pass})
 var GreatCircle = require('great-circle')
+const { parse} = require('@fast-csv/parse')
+const { EOL } = require('os');
+const fs = require('fs');
 
 
 var lasttime = 0
@@ -83,12 +86,13 @@ function destinationPoint(lat, lon, distance, bearing) {
 
 
 var imgCache = {}
+var infoCache = {}
 
 function pollUpdate() {
   fetch(aircraftURL)
     .then(res => res.json())
     .then(json => {
-      console.log(json)
+      // console.log(json)
       var o = {}
       var timestamp = json['now']
       promises = []
@@ -131,6 +135,11 @@ function pollUpdate() {
 	      e['image'] = image
 	  }))
 	}
+	console.log((e['hex'] in infoCache))
+	if (e['hex'] in infoCache) {
+          e['operator'] = infoCache[e['hex']].operator
+          e['owner'] = infoCache[e['hex']].owner
+	}
       })
       o['nearest_aircraft'].sort(function(a, b) {
 	return a['distance_km'] - b['distance_km']
@@ -147,7 +156,7 @@ function pollUpdate() {
         promises.push(fetch(faJsonURL)
           .then(res => res.json())
 	  .then(faJson => {
-            console.log(faJson)
+            // console.log(faJson)
             fa = {}
             fa['flightaware_site_url'] = faJson['site_url']
             fa['piaware_status'] = faJson['piaware']['status']
@@ -170,7 +179,7 @@ function pollUpdate() {
         promises.push(fetch(fr24JsonURL)
           .then(res => res.json())
 	  .then(frJson => {
-            console.log(frJson)
+            // console.log(frJson)
             fr = {}
             fr['version'] = frJson['build_version']
             fr['feed_alias'] = frJson['feed_alias']
@@ -193,7 +202,7 @@ function pollUpdate() {
         promises.push(fetch(pfJsonURL)
           .then(res => res.json())
 	  .then(pfJson => {
-            console.log(pfJson)
+            // console.log(pfJson)
             pf = {}
             pf['version'] = pfJson['client_version']
             pf['start_time'] = pfJson['executable_start_time']
@@ -212,7 +221,7 @@ function pollUpdate() {
       if (checkContainers.length > 0) {
         o['containers'] = {}
 	checkContainers.forEach(e => {
-	  console.log(e);
+	  // console.log(e);
           promises.push(new Promise((resolve, reject) => {
             exec('docker inspect ' + e, { maxBuffer: 1024 * 500 }, (error, stdout, stderr) => {
               o['containers'][e] = 0
@@ -235,5 +244,22 @@ function pollUpdate() {
   setTimeout(pollUpdate, mqttInterval)
 }
 
-client.on('connect', pollUpdate)
+client.on('connect', function() {
+  if (!dbFile) {
+      console.log(`No database provided`)
+      pollUpdate()
+  } else {
+    fs.createReadStream(dbFile)
+      .pipe(parse({ headers: true }))
+      .on('error', error => console.error(error))
+      .on('data', row => {
+        var record = {'operator': row['operator'], 'owner': row['owner']}
+        infoCache[row['icao24']] = record
+      })
+      .on('end', rowCount => {
+        console.log(`Parsed ${rowCount} rows`)
+        pollUpdate()
+      });
+  }
+})
 
