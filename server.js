@@ -11,7 +11,7 @@ const checkContainers = process.env.CHECK_CONTAINERS ? process.env.CHECK_CONTAIN
 const station_lat = parseFloat(process.env.LAT)
 const station_long = parseFloat(process.env.LONG)
 const mqttInterval = process.env.MQTT_INTERVAL ? parseInt(process.env.MQTT_INTERVAL) : 5000
-const dbFile = process.env.DB_FILE
+const aircraftDbFile = process.env.AIRCRAFT_DB_FILE
 const mqtt = require('mqtt')
 const fetch = require('node-fetch')
 const exec = require("child_process").exec;
@@ -245,16 +245,21 @@ function pollUpdate() {
 }
 
 client.on('connect', function() {
-  if (!dbFile) {
+  if (!aircraftDbFile) {
       console.log(`No database provided`)
       pollUpdate()
   } else {
-    fs.createReadStream(dbFile)
+    var rows = 0;
+    fs.createReadStream(aircraftDbFile)
       .pipe(parse({ headers: true }))
       .on('error', error => console.error(error))
       .on('data', row => {
         var record = {'operator': row['operator'], 'owner': row['owner']}
         infoCache[row['icao24']] = record
+	rows++;
+	if (rows % 10000 == 0) {
+          console.log(`Parsed ${rows} aircraft entries`)
+	}
       })
       .on('end', rowCount => {
         console.log(`Parsed ${rowCount} rows`)
