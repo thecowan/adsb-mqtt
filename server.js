@@ -12,6 +12,7 @@ const station_lat = parseFloat(process.env.LAT)
 const station_long = parseFloat(process.env.LONG)
 const mqttInterval = process.env.MQTT_INTERVAL ? parseInt(process.env.MQTT_INTERVAL) : 5000
 const aircraftDbFile = process.env.AIRCRAFT_DB_FILE
+const routeDbFile = process.env.ROUTE_DB_FILE
 const mqtt = require('mqtt')
 const fetch = require('node-fetch')
 const exec = require("child_process").exec;
@@ -20,10 +21,11 @@ var GreatCircle = require('great-circle')
 const { parse} = require('@fast-csv/parse')
 const { EOL } = require('os');
 const fs = require('fs');
-
+const sqlite3 = require('sqlite3').verbose();
 
 var lasttime = 0
 var lastcount = 0
+var routeDb
 
 function CPA(speed1,course1,speed2,course2,range,bearing)
 {
@@ -87,6 +89,7 @@ function destinationPoint(lat, lon, distance, bearing) {
 
 var imgCache = {}
 var infoCache = {}
+var routeCache = {}
 
 function pollUpdate() {
   fetch(aircraftURL)
@@ -135,10 +138,44 @@ function pollUpdate() {
 	      e['image'] = image
 	  }))
 	}
-	console.log((e['hex'] in infoCache))
 	if (e['hex'] in infoCache) {
           e['operator'] = infoCache[e['hex']].operator
           e['owner'] = infoCache[e['hex']].owner
+	}
+	if (routeDbFile && e['flight']) {
+	  if (e['flight'] in routeCache) {
+            console.log('Found in cache ' + e['flight'])
+	    e['route'] = routeCache[e['flight']]
+	  } else {
+            console.log('Checking flight ' + e['flight'])
+            const re = /^([A-Z]{3})(\d+[^ ]*)/;
+            var match = e['flight'].match(re);
+            routeCache[e['flight']] = {}
+            if (match) {
+              sql = "SELECT FromAirportIcao, FromAirportName, FromAirportCountry, FromAirportLocation, " +
+	                   "ToAirportIcao, ToAirportName, ToAirportCountry, ToAirportLocation " +
+			   "FROM routeview WHERE operatoricao = '" + match[1] + "' and flightnumber = '" + match[2] + "';"
+              console.log('Matches: running SQL: ' + sql)
+              routeDb.each(sql, (err, row) => {
+		data = {
+	          'FromIcao': row.FromAirportIcao,
+	          'FromName': row.FromAirportName,
+	          'FromCountry': row.FromAirportCountry,
+	          'FromLocation': row.FromAirportLocation,
+	          'ToIcao': row.ToAirportIcao,
+	          'ToName': row.ToAirportName,
+	          'ToCountry': row.ToAirportCountry,
+	          'ToLocation': row.ToAirportLocation,
+	          'Source': 'db',
+	        }
+                console.log('Got data: ' + data);
+                routeCache[e['flight']] = data
+	        e['route'] = data
+	      });
+	    } else {
+              routeCache[e['flight']] = {}
+            }
+	  }
 	}
       })
       o['nearest_aircraft'].sort(function(a, b) {
@@ -245,8 +282,13 @@ function pollUpdate() {
 }
 
 client.on('connect', function() {
+  if (!routeDbFile) {
+      console.log(`No route database provided`)
+  } else {
+      routeDb = new sqlite3.Database(routeDbFile)
+  }
   if (!aircraftDbFile) {
-      console.log(`No database provided`)
+      console.log(`No aircraft database provided`)
       pollUpdate()
   } else {
     var rows = 0;
