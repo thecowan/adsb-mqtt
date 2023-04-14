@@ -1,6 +1,7 @@
 const server = process.env.MQTT_HOST
 const user = process.env.MQTT_USER
 const pass = process.env.MQTT_PASS
+const port = process.env.MQTT_PORT || 1883
 const topic = process.env.MQTT_TOPIC || "adsb/dump"
 const aircraftURL = process.env.AIRCRAFT_JSON_URL || "http://tar1090/data/aircraft.json"
 const faJsonURL = process.env.FA_JSON_URL || "http://piaware:8080/status.json"
@@ -16,7 +17,7 @@ const routeDbFile = process.env.ROUTE_DB_FILE
 const mqtt = require('mqtt')
 const fetch = require('node-fetch')
 const exec = require("child_process").exec;
-const client = mqtt.connect('mqtt://' + server + '/', {'username': user, 'password': pass})
+const client = mqtt.connect('mqtt://' + server + ':' + port + '/', {'username': user, 'password': pass})
 var GreatCircle = require('great-circle')
 const { parse} = require('@fast-csv/parse')
 const { EOL } = require('os');
