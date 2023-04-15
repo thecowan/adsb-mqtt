@@ -7,7 +7,10 @@ const aircraftURL = process.env.AIRCRAFT_JSON_URL || "http://tar1090/data/aircra
 const faJsonURL = process.env.FA_JSON_URL || "http://piaware:8080/status.json"
 const fr24JsonURL = process.env.FR24_JSON_URL || "http://fr24:8754/monitor.json"
 const pfJsonURL = process.env.PF_JSON_URL || "http://pfclient:30053/ajax/stats"
-const rawStatus = true
+const rawStatus = process.env.INCLUDE_RAW_STATUS == "true";
+const calculateGeo = process.env.CALCULATE_GEO == "true";
+const filterGround = !(process.env.FILTER_GROUND == "false");
+const filterPositionsOnly = (process.env.FILTER_POSITIONS_ONLY == "true");
 const checkContainers = process.env.CHECK_CONTAINERS ? process.env.CHECK_CONTAINERS.split(",") : ['readsb', 'piaware', 'adsbx', 'opensky', 'rbfeeder', 'fr24']
 const station_lat = parseFloat(process.env.LAT)
 const station_long = parseFloat(process.env.LONG)
@@ -102,28 +105,30 @@ function pollUpdate() {
       promises = []
       var messages = json['messages']
       o['timestamp'] = timestamp
-      o['positions'] = json['aircraft'].filter(function(e) {
+      o['positions_seen'] = json['aircraft'].filter(function(e) {
         return 'seen_pos' in e
       }).length;
-      o['aircraft'] = json['aircraft'].filter(function(e) {
+      o['recent_aircraft'] = json['aircraft'].filter(function(e) {
         return 'seen' in e && e['seen'] < 60
       }).length;
-      o['nearest_aircraft'] = json['aircraft'].filter(function(e) {
-        return e['alt_baro'] != 'ground' && 'seen_pos' in e
+      o['aircraft'] = json['aircraft'].filter(function(e) {
+        return ((!filterGround || (e['alt_baro'] != 'ground')) && (!filterPositionsOnly || ('seen_pos' in e)));
       })
-      o['nearest_aircraft'].forEach(function(e) {
-	e['distance_km'] = GreatCircle.distance(station_lat, station_long, e['lat'], e['lon'] )
-	e['distance_nm'] = GreatCircle.distance(station_lat, station_long, e['lat'], e['lon'], "NM" )
-	e['bearing'] = GreatCircle.bearing(station_lat, station_long, e['lat'], e['lon'] )
-	var cpa = CPA(0, 0, e['gs'], e['track'], e['distance_nm'], e['bearing'])
-	if (cpa) {
-         e['cpa_nm'] = cpa[0]
-         e['cpa_km'] = cpa[0] * 1.852
-         e['cpa_secs'] = cpa[1] * 60
-         e['cpa_altitude_estimate'] = e['alt_baro'] + (cpa[1] * e['baro_rate'])
-         var cpaPoint = destinationPoint(e['lat'], e['lon'], distanceAfterSeconds(e['gs'], e['cpa_secs']) ,  e['track']);
-         e['cpa_lat'] = cpaPoint[0]
-         e['cpa_lon'] = cpaPoint[1]
+      o['aircraft'].forEach(function(e) {
+	if (calculateGeo) {
+	  e['distance_km'] = GreatCircle.distance(station_lat, station_long, e['lat'], e['lon'] )
+	  e['distance_nm'] = GreatCircle.distance(station_lat, station_long, e['lat'], e['lon'], "NM" )
+	  e['bearing'] = GreatCircle.bearing(station_lat, station_long, e['lat'], e['lon'] )
+	  var cpa = CPA(0, 0, e['gs'], e['track'], e['distance_nm'], e['bearing'])
+	  if (cpa) {
+            e['cpa_nm'] = cpa[0]
+            e['cpa_km'] = cpa[0] * 1.852
+            e['cpa_secs'] = cpa[1] * 60
+            e['cpa_altitude_estimate'] = e['alt_baro'] + (cpa[1] * e['baro_rate'])
+            var cpaPoint = destinationPoint(e['lat'], e['lon'], distanceAfterSeconds(e['gs'], e['cpa_secs']) ,  e['track']);
+            e['cpa_lat'] = cpaPoint[0]
+            e['cpa_lon'] = cpaPoint[1]
+          }
 	}
 	if (e['hex'] in imgCache) {
 	  e['image'] = imgCache[e['hex']]
@@ -179,9 +184,12 @@ function pollUpdate() {
 	  }
 	}
       })
-      o['nearest_aircraft'].sort(function(a, b) {
-	return a['distance_km'] - b['distance_km']
-      })
+
+      if (calculateGeo) {
+        o['aircraft'].sort(function(a, b) {
+	  return a['distance_km'] - b['distance_km']
+        })
+      }
 
       o['messages_total'] = messages
       if (lasttime > 0 && (timestamp - lasttime) > 0) {
