@@ -4,9 +4,9 @@ const pass = process.env.MQTT_PASS
 const port = process.env.MQTT_PORT || 1883
 const topic = process.env.MQTT_TOPIC || "adsb/dump"
 const aircraftURL = process.env.AIRCRAFT_JSON_URL || "http://tar1090/data/aircraft.json"
-const faJsonURL = process.env.FA_JSON_URL || "http://piaware:8080/status.json"
-const fr24JsonURL = process.env.FR24_JSON_URL || "http://fr24:8754/monitor.json"
-const pfJsonURL = process.env.PF_JSON_URL || "http://pfclient:30053/ajax/stats"
+const faJsonURL = process.env.FA_JSON_URL
+const fr24JsonURL = process.env.FR24_JSON_URL
+const pfJsonURL = process.env.PF_JSON_URL
 const rawStatus = process.env.INCLUDE_RAW_STATUS == "true";
 const calculateGeo = process.env.CALCULATE_GEO == "true";
 const filterGround = !(process.env.FILTER_GROUND == "false");
