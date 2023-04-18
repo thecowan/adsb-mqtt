@@ -158,17 +158,19 @@ function pollUpdate() {
             var match = e['flight'].match(re);
             routeCache[e['flight']] = {}
             if (match) {
-              sql = "SELECT FromAirportIcao, FromAirportName, FromAirportCountry, FromAirportLocation, " +
-	                   "ToAirportIcao, ToAirportName, ToAirportCountry, ToAirportLocation " +
+              sql = "SELECT FromAirportIcao, FromAirportName, FromAirportCountry, FromAirportLocation, FromAirportIata, " +
+	                   "ToAirportIcao, ToAirportName, ToAirportCountry, ToAirportLocation, ToAirportIata " +
 			   "FROM routeview WHERE operatoricao = '" + match[1] + "' and flightnumber = '" + match[2] + "';"
               console.log('Matches: running SQL: ' + sql)
               routeDb.each(sql, (err, row) => {
 		data = {
 	          'FromIcao': row.FromAirportIcao,
+	          'FromIata': row.FromAirportIata,
 	          'FromName': row.FromAirportName,
 	          'FromCountry': row.FromAirportCountry,
 	          'FromLocation': row.FromAirportLocation,
 	          'ToIcao': row.ToAirportIcao,
+	          'ToIata': row.ToAirportIata,
 	          'ToName': row.ToAirportName,
 	          'ToCountry': row.ToAirportCountry,
 	          'ToLocation': row.ToAirportLocation,
