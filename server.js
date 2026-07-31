@@ -133,11 +133,13 @@ function pollUpdate() {
 	if (e['hex'] in imgCache) {
 	  e['image'] = imgCache[e['hex']]
 	} else {
-          promises.push(fetch('https://api.planespotters.net/pub/photos/hex/' + e['hex'])
+          photoUrl = 'https://api.planespotters.net/pub/photos/hex/' + e['hex']
+          console.log('Fetching: ' + photoUrl)
+          promises.push(fetch(photoUrl)
             .then(res => res.json())
             .then(imgJson => {
 	      var image = ''
-	      if (imgJson['photos'].length > 0) {
+	      if (imgJson['photos'] && imgJson['photos'].length > 0) {
 	        image = imgJson['photos'][0]['thumbnail']['src']
 	      }
               imgCache[e['hex']] = image
@@ -321,3 +323,6 @@ client.on('connect', function() {
   }
 })
 
+client.on("error", function(e) {
+  console.log("Error! " + e)
+});
