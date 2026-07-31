@@ -1,3 +1,12 @@
+const mqtt = require('mqtt')
+const fetch = require('node-fetch')
+const exec = require("child_process").exec;
+var GreatCircle = require('great-circle')
+const { parse} = require('@fast-csv/parse')
+const { EOL } = require('os');
+const fs = require('fs');
+const sqlite3 = require('sqlite3').verbose();
+
 const server = process.env.MQTT_HOST
 const user = process.env.MQTT_USER
 const pass = process.env.MQTT_PASS
@@ -17,15 +26,7 @@ const station_long = parseFloat(process.env.LONG)
 const mqttInterval = process.env.MQTT_INTERVAL ? parseInt(process.env.MQTT_INTERVAL) : 5000
 const aircraftDbFile = process.env.AIRCRAFT_DB_FILE
 const routeDbFile = process.env.ROUTE_DB_FILE
-const mqtt = require('mqtt')
-const fetch = require('node-fetch')
-const exec = require("child_process").exec;
 const client = mqtt.connect('mqtt://' + server + ':' + port + '/', {'username': user, 'password': pass})
-var GreatCircle = require('great-circle')
-const { parse} = require('@fast-csv/parse')
-const { EOL } = require('os');
-const fs = require('fs');
-const sqlite3 = require('sqlite3').verbose();
 
 var lasttime = 0
 var lastcount = 0
