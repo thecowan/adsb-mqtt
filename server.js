@@ -6,6 +6,7 @@ const { parse} = require('@fast-csv/parse')
 const { EOL } = require('os');
 const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
+const nodecache = require('persistent-node-cache')
 
 const server = process.env.MQTT_HOST
 const user = process.env.MQTT_USER
@@ -26,7 +27,15 @@ const station_long = parseFloat(process.env.LONG)
 const mqttInterval = process.env.MQTT_INTERVAL ? parseInt(process.env.MQTT_INTERVAL) : 5000
 const aircraftDbFile = process.env.AIRCRAFT_DB_FILE
 const routeDbFile = process.env.ROUTE_DB_FILE
+const cacheDir = process.env.CACHE_DIR || "./"
+
 const client = mqtt.connect('mqtt://' + server + ':' + port + '/', {'username': user, 'password': pass})
+
+const HOUR = 3600
+const DAY = 86400
+
+console.log("Image Cache TTL: " + 28 * DAY)
+const imageCache = new nodecache.PersistentNodeCache("images", 0, cacheDir, {stdTTL: 28 * DAY})
 
 var lasttime = 0
 var lastcount = 0
@@ -92,7 +101,6 @@ function destinationPoint(lat, lon, distance, bearing) {
 
 
 
-var imgCache = {}
 var infoCache = {}
 var routeCache = {}
 
@@ -131,22 +139,25 @@ function pollUpdate() {
             e['cpa_lon'] = cpaPoint[1]
           }
 	}
-	if (e['hex'] in imgCache) {
-	  e['image'] = imgCache[e['hex']]
-	} else {
-          photoUrl = 'https://api.planespotters.net/pub/photos/hex/' + e['hex']
-          console.log('Fetching: ' + photoUrl)
-          promises.push(fetch(photoUrl)
+  var image = imageCache.get(e['hex'])
+  if (image == undefined) {
+    photoUrl = 'https://api.planespotters.net/pub/photos/hex/' + e['hex']
+    console.log('Fetching: ' + photoUrl)
+    promises.push(fetch(photoUrl)
             .then(res => res.json())
             .then(imgJson => {
-	      var image = ''
-	      if (imgJson['photos'] && imgJson['photos'].length > 0) {
-	        image = imgJson['photos'][0]['thumbnail']['src']
-	      }
-              imgCache[e['hex']] = image
-	      e['image'] = image
-	  }))
-	}
+              var image = ''
+              if (imgJson['photos'] && imgJson['photos'].length > 0) {
+                image = imgJson['photos'][0]['thumbnail']['src']
+              }
+              imageCache.set(e['hex'], image)
+              e['image'] = image
+            }
+    ))
+  } else {
+    e['image'] = image
+  }
+
 	if (e['hex'] in infoCache) {
           e['operator'] = infoCache[e['hex']].operator
           e['owner'] = infoCache[e['hex']].owner

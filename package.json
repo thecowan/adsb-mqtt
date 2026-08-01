@@ -14,6 +14,7 @@
     "great-circle": "^0.2.8",
     "mqtt": "^4.3.7",
     "node-fetch": "^2.6.7",
-    "sqlite3": "^6.0.1"
+    "sqlite3": "^6.0.1",
+    "persistent-node-cache": "^1.3.0"
   }
 }
