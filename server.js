@@ -5,7 +5,6 @@ var GreatCircle = require('great-circle')
 const { parse} = require('@fast-csv/parse')
 const { EOL } = require('os');
 const fs = require('fs');
-const sqlite3 = require('sqlite3').verbose();
 const nodecache = require('persistent-node-cache')
 
 const server = process.env.MQTT_HOST
@@ -18,6 +17,7 @@ const faJsonURL = process.env.FA_JSON_URL
 const fr24JsonURL = process.env.FR24_JSON_URL
 const pfJsonURL = process.env.PF_JSON_URL
 const rawStatus = process.env.INCLUDE_RAW_STATUS == "true";
+const dryRun = process.env.DRY_RUN == "true";
 const calculateGeo = process.env.CALCULATE_GEO == "true";
 const filterGround = !(process.env.FILTER_GROUND == "false");
 const filterPositionsOnly = (process.env.FILTER_POSITIONS_ONLY == "true");
@@ -26,20 +26,21 @@ const station_lat = parseFloat(process.env.LAT)
 const station_long = parseFloat(process.env.LONG)
 const mqttInterval = process.env.MQTT_INTERVAL ? parseInt(process.env.MQTT_INTERVAL) : 5000
 const aircraftDbFile = process.env.AIRCRAFT_DB_FILE
-const routeDbFile = process.env.ROUTE_DB_FILE
 const cacheDir = process.env.CACHE_DIR || "./"
 
 const client = mqtt.connect('mqtt://' + server + ':' + port + '/', {'username': user, 'password': pass})
 
-const HOUR = 3600
-const DAY = 86400
+const MINUTE = 60
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
 
 console.log("Image Cache TTL: " + 28 * DAY)
 const imageCache = new nodecache.PersistentNodeCache("images", 0, cacheDir, {stdTTL: 28 * DAY})
+console.log("Route Cache TTL: " + 30 * MINUTE)
+const routeCache = new nodecache.PersistentNodeCache("routes", 0, cacheDir, {stdTTL: 30 * MINUTE})
 
 var lasttime = 0
 var lastcount = 0
-var routeDb
 
 function CPA(speed1,course1,speed2,course2,range,bearing)
 {
@@ -99,10 +100,31 @@ function destinationPoint(lat, lon, distance, bearing) {
      return [toDegrees(φ2), (toDegrees(λ2)+540)%360-180]; // normalise to −180..+180°
   }
 
+function populateFlightInfo(planeJson, flightJson) {
+  flight = flightJson[0]
+  if (flight['_airports'].length == 2) {
+    from = flight['_airports'][0]
+    to = flight['_airports'][1]
+    data = {
+            'FromIcao': from.icao,
+            'FromIata': from.iata,
+            'FromName': from.name,
+            'FromCountry': from.countryiso2,
+            'FromLocation': from.location,
+            'ToIcao': to.icao,
+            'ToIata': to.iata,
+            'ToName': to.name,
+            'ToCountry': to.countryiso2,
+            'ToLocation': to.location,
+            'Source': 'api'
+    }
+    console.log('Got data: ' + JSON.stringify(data));
+    planeJson['route'] = data
+  }
+}
 
 
 var infoCache = {}
-var routeCache = {}
 
 function pollUpdate() {
   fetch(aircraftURL)
@@ -142,7 +164,7 @@ function pollUpdate() {
   var image = imageCache.get(e['hex'])
   if (image == undefined) {
     photoUrl = 'https://api.planespotters.net/pub/photos/hex/' + e['hex']
-    console.log('Fetching: ' + photoUrl)
+    console.log('Fetching image: ' + photoUrl)
     promises.push(fetch(photoUrl)
             .then(res => res.json())
             .then(imgJson => {
@@ -158,47 +180,31 @@ function pollUpdate() {
     e['image'] = image
   }
 
+  if (e['flight'] != undefined) { 
+    var info = routeCache.get(e['flight'])
+    if (info == undefined) {
+      var reqObj = {}
+      reqObj["planes"] = [{"callsign": e['flight'].trim(), "lat": station_lat, "lng": station_long}]
+      // console.log("Fetch obj: " + JSON.stringify(reqObj))
+      promises.push(fetch("http://adsb.im/api/0/routeset", {method: "POST", body: JSON.stringify(reqObj), headers: {'Content-Type': 'application/json'}})
+              .then(res => res.json())
+              .then(infoJson => {
+                routeCache.set(e['flight'], infoJson)
+                populateFlightInfo(e, infoJson)
+              }
+      ))
+    } else {
+      // console.log("Got from cache: " + JSON.stringify(info))
+      populateFlightInfo(e, info)
+    }
+  }
+
+
 	if (e['hex'] in infoCache) {
           e['operator'] = infoCache[e['hex']].operator
           e['owner'] = infoCache[e['hex']].owner
 	}
-	if (routeDbFile && e['flight']) {
-	  if (e['flight'] in routeCache) {
-            console.log('Found in cache ' + e['flight'])
-	    e['route'] = routeCache[e['flight']]
-	  } else {
-            console.log('Checking flight ' + e['flight'])
-            const re = /^([A-Z]{3})(\d+[^ ]*)/;
-            var match = e['flight'].match(re);
-            routeCache[e['flight']] = {}
-            if (match) {
-              sql = "SELECT FromAirportIcao, FromAirportName, FromAirportCountry, FromAirportLocation, FromAirportIata, " +
-	                   "ToAirportIcao, ToAirportName, ToAirportCountry, ToAirportLocation, ToAirportIata " +
-			   "FROM routeview WHERE operatoricao = '" + match[1] + "' and flightnumber = '" + match[2] + "';"
-              console.log('Matches: running SQL: ' + sql)
-              routeDb.each(sql, (err, row) => {
-		data = {
-	          'FromIcao': row.FromAirportIcao,
-	          'FromIata': row.FromAirportIata,
-	          'FromName': row.FromAirportName,
-	          'FromCountry': row.FromAirportCountry,
-	          'FromLocation': row.FromAirportLocation,
-	          'ToIcao': row.ToAirportIcao,
-	          'ToIata': row.ToAirportIata,
-	          'ToName': row.ToAirportName,
-	          'ToCountry': row.ToAirportCountry,
-	          'ToLocation': row.ToAirportLocation,
-	          'Source': 'db',
-	        }
-                console.log('Got data: ' + data);
-                routeCache[e['flight']] = data
-	        e['route'] = data
-	      });
-	    } else {
-              routeCache[e['flight']] = {}
-            }
-	  }
-	}
+
       })
 
       if (calculateGeo) {
@@ -300,18 +306,18 @@ function pollUpdate() {
       }
       Promise.all(promises)
         .then(out => {
-          client.publish(topic, JSON.stringify(o))
+          if (dryRun) {
+            console.log("Not publishing! - dry run mode")
+            console.log(JSON.stringify(o))
+          } else {
+            client.publish(topic, JSON.stringify(o))
+          }
         })
     })
   setTimeout(pollUpdate, mqttInterval)
 }
 
 client.on('connect', function() {
-  if (!routeDbFile) {
-      console.log(`No route database provided`)
-  } else {
-      routeDb = new sqlite3.Database(routeDbFile)
-  }
   if (!aircraftDbFile) {
       console.log(`No aircraft database provided`)
       pollUpdate()
