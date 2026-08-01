@@ -102,7 +102,7 @@ function destinationPoint(lat, lon, distance, bearing) {
 
 function populateFlightInfo(planeJson, flightJson) {
   flight = flightJson[0]
-  if (flight['_airports'].length == 2) {
+  if (flight['_airports'].length == 2 && flight['plausible']) {
     from = flight['_airports'][0]
     to = flight['_airports'][1]
     data = {
